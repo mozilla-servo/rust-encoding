@@ -10,6 +10,8 @@
 
 #[crate_id = "encoding#0.1.0"];
 #[crate_type = "lib"];
+#[crate_type = "dylib"];
+#[crate_type = "rlib"];
 #[comment = "Character encoding support for Rust"];
 #[license = "MIT"];
 
