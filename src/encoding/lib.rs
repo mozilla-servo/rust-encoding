@@ -8,14 +8,14 @@
  * error detection and recovery.
  */
 
-#[crate_id = "encoding#0.1.0"];
-#[crate_type = "lib"];
-#[crate_type = "dylib"];
-#[crate_type = "rlib"];
-#[comment = "Character encoding support for Rust"];
-#[license = "MIT"];
+#![crate_id = "encoding#0.1.0"]
+#![crate_type = "lib"]
+#![crate_type = "dylib"]
+#![crate_type = "rlib"]
+#![comment = "Character encoding support for Rust"]
+#![license = "MIT"]
 
-#[feature(globs, macro_rules)];
+#![feature(globs, macro_rules)]
 
 pub use self::types::*; // reexport
 
