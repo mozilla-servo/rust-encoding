@@ -17,7 +17,12 @@
 
 #![feature(globs, macro_rules)]
 
-pub use self::types::*; // reexport
+pub use self::types::{CodecError, ByteWriter, StringWriter,
+                      Encoder, Decoder, EncodingRef, Encoding,
+                      EncoderTrapFunc, DecoderTrapFunc, DecoderTrap,
+                      DecodeStrict, DecodeReplace, DecodeIgnore,
+                      EncoderTrap, EncodeStrict, EncodeReplace,
+                      EncodeIgnore, EncodeNcrEscape, decode}; // reexport
 
 mod util;
 #[cfg(test)] mod testutils;
@@ -92,11 +97,14 @@ mod tests {
         assert_eq!(all::ISO_8859_2.encode("Acme\xa9", EncodeNcrEscape),
                    Ok(vec!(65,99,109,101,38,35,49,54,57,59))); // Acme&#169;
 
-        assert_eq!(all::ISO_8859_1.decode([99,97,102,233], DecodeStrict), Ok(~"caf\xe9"));
+        assert_eq!(all::ISO_8859_1.decode([99,97,102,233], DecodeStrict),
+                   Ok(StrBuf::from_str("caf\xe9")));
 
         assert!(all::ISO_8859_6.decode([65,99,109,101,169], DecodeStrict).is_err());
-        assert_eq!(all::ISO_8859_6.decode([65,99,109,101,169], DecodeReplace), Ok(~"Acme\ufffd"));
-        assert_eq!(all::ISO_8859_6.decode([65,99,109,101,169], DecodeIgnore), Ok(~"Acme"));
+        assert_eq!(all::ISO_8859_6.decode([65,99,109,101,169], DecodeReplace),
+                   Ok(StrBuf::from_str("Acme\ufffd")));
+        assert_eq!(all::ISO_8859_6.decode([65,99,109,101,169], DecodeIgnore),
+                   Ok(StrBuf::from_str("Acme")));
     }
 
     #[test]
@@ -110,10 +118,10 @@ mod tests {
             true
         }
         static HexNcrEscape: EncoderTrap = EncoderTrap(hex_ncr_escape);
-        let orig = ~"Hello, 世界!";
+        let orig = "Hello, 世界!".to_owned();
         let encoded = all::ASCII.encode(orig, HexNcrEscape).unwrap();
         let decoded = all::ASCII.decode(encoded.as_slice(), DecodeStrict).unwrap();
-        assert_eq!(decoded, ~"Hello, &#x4e16;&#x754c;!");
+        assert_eq!(decoded, StrBuf::from_str("Hello, &#x4e16;&#x754c;!"));
     }
 
     #[test]
@@ -122,10 +130,12 @@ mod tests {
         assert_eq!(euckr.name(), "windows-949");
         assert_eq!(euckr.whatwg_name(), Some("euc-kr")); // for the sake of compatibility
         let broken = &[0xbf, 0xec, 0xbf, 0xcd, 0xff, 0xbe, 0xd3];
-        assert_eq!(euckr.decode(broken, DecodeReplace), Ok(~"\uc6b0\uc640\ufffd\uc559"));
+        assert_eq!(euckr.decode(broken, DecodeReplace),
+                   Ok(StrBuf::from_str("\uc6b0\uc640\ufffd\uc559")));
 
         // corresponding rust-encoding native API:
-        assert_eq!(all::WINDOWS_949.decode(broken, DecodeReplace), Ok(~"\uc6b0\uc640\ufffd\uc559"));
+        assert_eq!(all::WINDOWS_949.decode(broken, DecodeReplace),
+                   Ok(StrBuf::from_str("\uc6b0\uc640\ufffd\uc559")));
     }
 
 
