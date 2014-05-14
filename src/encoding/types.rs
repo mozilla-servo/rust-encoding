@@ -82,20 +82,6 @@ pub trait ByteWriter {
     fn write_bytes(&mut self, v: &[u8]);
 }
 
-impl ByteWriter for ~[u8] {
-    fn writer_hint(&mut self, expectedlen: uint) {
-        self.reserve_additional(expectedlen);
-    }
-
-    fn write_byte(&mut self, b: u8) {
-        self.push(b);
-    }
-
-    fn write_bytes(&mut self, v: &[u8]) {
-        self.push_all(v);
-    }
-}
-
 impl ByteWriter for Vec<u8> {
     fn writer_hint(&mut self, expectedlen: uint) {
         self.reserve_additional(expectedlen);
@@ -127,7 +113,7 @@ pub trait StringWriter {
     fn write_str(&mut self, s: &str);
 }
 
-impl<T:OwnedStr+Container> StringWriter for T {
+impl StringWriter for StrBuf {
     fn writer_hint(&mut self, expectedlen: uint) {
         let newlen = self.len() + expectedlen;
         self.reserve(newlen);
@@ -146,7 +132,7 @@ impl<T:OwnedStr+Container> StringWriter for T {
 /// This is a lower level interface, and normally `Encoding::encode` should be used instead.
 pub trait Encoder {
     /// Creates a fresh `Encoder` instance which parameters are same as `self`.
-    fn from_self(&self) -> ~Encoder;
+    fn from_self(&self) -> Box<Encoder>;
 
     /// Returns true if this encoding is compatible to ASCII,
     /// i.e. U+0000 through U+007F always map to bytes 00 through 7F and nothing else.
@@ -198,7 +184,7 @@ pub trait Encoder {
 /// This is a lower level interface, and normally `Encoding::decode` should be used instead.
 pub trait Decoder {
     /// Creates a fresh `Decoder` instance which parameters are same as `self`.
-    fn from_self(&self) -> ~Decoder;
+    fn from_self(&self) -> Box<Decoder>;
 
     /// Returns true if this encoding is compatible to ASCII,
     /// i.e. bytes 00 through 7F always map to U+0000 through U+007F and nothing else.
@@ -227,16 +213,16 @@ pub trait Decoder {
 
     /// A test-friendly interface to `raw_feed`. Internal use only.
     #[cfg(test)]
-    fn test_feed(&mut self, input: &[u8]) -> (uint, Option<CodecError>, ~str) {
-        let mut buf = ~"";
+    fn test_feed(&mut self, input: &[u8]) -> (uint, Option<CodecError>, StrBuf) {
+        let mut buf = StrBuf::new();
         let (nprocessed, err) = self.raw_feed(input, &mut buf);
         (nprocessed, err, buf)
     }
 
     /// A test-friendly interface to `raw_finish`. Internal use only.
     #[cfg(test)]
-    fn test_finish(&mut self) -> (Option<CodecError>, ~str) {
-        let mut buf = ~"";
+    fn test_finish(&mut self) -> (Option<CodecError>, StrBuf) {
+        let mut buf = StrBuf::new();
         let err = self.raw_finish(&mut buf);
         (err, buf)
     }
@@ -267,10 +253,10 @@ pub trait Encoding {
     fn whatwg_name(&self) -> Option<&'static str> { None }
 
     /// Creates a new encoder.
-    fn encoder(&'static self) -> ~Encoder;
+    fn encoder(&'static self) -> Box<Encoder>;
 
     /// Creates a new decoder.
-    fn decoder(&'static self) -> ~Decoder;
+    fn decoder(&'static self) -> Box<Decoder>;
 
     /// An easy-to-use interface to `Encoder`.
     /// On the encoder error `trap` is called,
@@ -279,19 +265,19 @@ pub trait Encoding {
     fn encode(&'static self, input: &str, trap: EncoderTrap) -> Result<Vec<u8>,SendStr> {
         let mut encoder = self.encoder();
         let mut remaining = input;
-        let mut unprocessed = ~"";
+        let mut unprocessed = StrBuf::new();
         let mut ret = Vec::new();
 
         loop {
             let (offset, err) = encoder.raw_feed(remaining, &mut ret);
-            if offset > 0 { unprocessed.clear(); }
+            if offset > 0 { unprocessed.truncate(0); }
             match err {
                 Some(err) => {
                     unprocessed.push_str(remaining.slice(offset, err.upto));
-                    if !trap.trap(encoder, unprocessed, &mut ret) {
+                    if !trap.trap(encoder, unprocessed.as_slice(), &mut ret) {
                         return Err(err.cause);
                     }
-                    unprocessed.clear();
+                    unprocessed.truncate(0);
                     remaining = remaining.slice(err.upto, remaining.len());
                 }
                 None => {
@@ -303,7 +289,7 @@ pub trait Encoding {
 
         match encoder.raw_finish(&mut ret) {
             Some(err) => {
-                if !trap.trap(encoder, unprocessed, &mut ret) {
+                if !trap.trap(encoder, unprocessed.as_slice(), &mut ret) {
                     return Err(err.cause);
                 }
             }
@@ -316,11 +302,11 @@ pub trait Encoding {
     /// On the decoder error `trap` is called,
     /// which may return a replacement string to continue processing,
     /// or a failure to return the error.
-    fn decode(&'static self, input: &[u8], trap: DecoderTrap) -> Result<~str,SendStr> {
+    fn decode(&'static self, input: &[u8], trap: DecoderTrap) -> Result<StrBuf,SendStr> {
         let mut decoder = self.decoder();
         let mut remaining = input;
         let mut unprocessed = Vec::new();
-        let mut ret = ~"";
+        let mut ret = StrBuf::new();
 
         loop {
             let (offset, err) = decoder.raw_feed(remaining, &mut ret);
@@ -433,9 +419,9 @@ impl EncoderTrap {
             EncodeReplace => reencode(encoder, "?", output, "Replace"),
             EncodeIgnore => true,
             EncodeNcrEscape => {
-                let mut escapes = ~"";
+                let mut escapes = StrBuf::new();
                 for ch in input.chars() { escapes.push_str(format!("&\\#{:d};", ch as int)); }
-                reencode(encoder, escapes, output, "NcrEscape")
+                reencode(encoder, escapes.as_slice(), output, "NcrEscape")
             },
             EncoderTrap(func) => func(encoder, input, output),
         }
@@ -447,7 +433,7 @@ impl EncoderTrap {
 /// and decoded a single string in memory.
 /// Return the result and the used encoding.
 pub fn decode(input: &[u8], trap: DecoderTrap, fallback_encoding: EncodingRef)
-           -> (Result<~str,SendStr>, EncodingRef) {
+           -> (Result<StrBuf,SendStr>, EncodingRef) {
     use all::{UTF_8, UTF_16LE, UTF_16BE};
     if input.starts_with([0xEF, 0xBB, 0xBF]) {
         (UTF_8.decode(input.slice_from(3), trap), UTF_8 as EncodingRef)
