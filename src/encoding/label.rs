@@ -1,5 +1,5 @@
 // This is a part of rust-encoding.
-// Copyright (c) 2013, Kang Seonghoon.
+// Copyright (c) 2013-2014, Kang Seonghoon.
 // See README.md and LICENSE.txt for details.
 
 //! An interface for retrieving an encoding (or a set of encodings) from a string/numeric label.
@@ -216,19 +216,16 @@ pub fn encoding_from_whatwg_label(label: &str) -> Option<EncodingRef> {
         "chinese" |
         "csgb2312" |
         "csiso58gb231280" |
+        "gb18030" |
         "gb2312" |
         "gb_2312" |
         "gb_2312-80" |
         "gbk" |
         "iso-ir-58" |
         "x-gbk" =>
-            Some(all::GBK18030 as EncodingRef),
-        "gb18030" =>
             Some(all::GB18030 as EncodingRef),
-        /*
         "hz-gb-2312" =>
-            Some(all::HZ_GB_2312 as EncodingRef),
-        */
+            Some(all::HZ as EncodingRef),
         "big5" |
         "big5-hkscs" |
         "cn-big5" |
@@ -239,11 +236,9 @@ pub fn encoding_from_whatwg_label(label: &str) -> Option<EncodingRef> {
         "euc-jp" |
         "x-euc-jp" =>
             Some(all::EUC_JP as EncodingRef),
-        /*
         "csiso2022jp" |
         "iso-2022-jp" =>
             Some(all::ISO_2022_JP as EncodingRef),
-        */
         "csshiftjis" |
         "ms_kanji" |
         "shift-jis" |
@@ -311,16 +306,11 @@ pub fn encoding_from_windows_code_page(cp: uint) -> Option<EncodingRef> {
         1257 => Some(all::WINDOWS_1257 as EncodingRef),
         1258 => Some(all::WINDOWS_1258 as EncodingRef),
         1259 => Some(all::X_MAC_CYRILLIC as EncodingRef),
-        936 => Some(all::GBK18030 as EncodingRef),
-        54936 => Some(all::GB18030 as EncodingRef),
-        /*
-        52936 => Some(all::HZ_GB_2312 as EncodingRef),
-        */
+        936 | 54936 => Some(all::GB18030 as EncodingRef), // XXX technically wrong
+        52936 => Some(all::HZ as EncodingRef),
         950 => Some(all::BIG5_2003 as EncodingRef),
         20932 => Some(all::EUC_JP as EncodingRef),
-        /*
         50220 => Some(all::ISO_2022_JP as EncodingRef),
-        */
         932 => Some(all::WINDOWS_31J as EncodingRef),
         949 => Some(all::WINDOWS_949 as EncodingRef),
         1201 => Some(all::UTF_16BE as EncodingRef),
@@ -348,9 +338,9 @@ mod tests {
 
     #[bench]
     fn bench_encoding_from_whatwg_label(bencher: &mut test::Bencher) {
-        bencher.iter(|| {
-            encoding_from_whatwg_label("iso-8859-bazinga");
-        })
+        bencher.iter(|| test::black_box({
+            encoding_from_whatwg_label("iso-8859-bazinga")
+        }))
     }
 }
 

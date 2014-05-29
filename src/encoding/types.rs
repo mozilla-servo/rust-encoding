@@ -1,5 +1,5 @@
 // This is a part of rust-encoding.
-// Copyright (c) 2013, Kang Seonghoon.
+// Copyright (c) 2013-2014, Kang Seonghoon.
 // See README.md and LICENSE.txt for details.
 
 /*!
@@ -113,7 +113,7 @@ pub trait StringWriter {
     fn write_str(&mut self, s: &str);
 }
 
-impl StringWriter for StrBuf {
+impl StringWriter for String {
     fn writer_hint(&mut self, expectedlen: uint) {
         let newlen = self.len() + expectedlen;
         self.reserve(newlen);
@@ -177,7 +177,7 @@ pub trait Encoder {
 
     /// Concatenates two input sequences into one. Internal use only.
     #[cfg(test)]
-    fn test_concat(&self, a: &str, b: &str) -> ~str { a + b }
+    fn test_concat(&self, a: &str, b: &str) -> String { a.to_owned().append(b) }
 }
 
 /// Encoder converting a byte sequence into a Unicode string.
@@ -213,16 +213,16 @@ pub trait Decoder {
 
     /// A test-friendly interface to `raw_feed`. Internal use only.
     #[cfg(test)]
-    fn test_feed(&mut self, input: &[u8]) -> (uint, Option<CodecError>, StrBuf) {
-        let mut buf = StrBuf::new();
+    fn test_feed(&mut self, input: &[u8]) -> (uint, Option<CodecError>, String) {
+        let mut buf = String::new();
         let (nprocessed, err) = self.raw_feed(input, &mut buf);
         (nprocessed, err, buf)
     }
 
     /// A test-friendly interface to `raw_finish`. Internal use only.
     #[cfg(test)]
-    fn test_finish(&mut self) -> (Option<CodecError>, StrBuf) {
-        let mut buf = StrBuf::new();
+    fn test_finish(&mut self) -> (Option<CodecError>, String) {
+        let mut buf = String::new();
         let err = self.raw_finish(&mut buf);
         (err, buf)
     }
@@ -265,7 +265,7 @@ pub trait Encoding {
     fn encode(&'static self, input: &str, trap: EncoderTrap) -> Result<Vec<u8>,SendStr> {
         let mut encoder = self.encoder();
         let mut remaining = input;
-        let mut unprocessed = StrBuf::new();
+        let mut unprocessed = String::new();
         let mut ret = Vec::new();
 
         loop {
@@ -302,11 +302,11 @@ pub trait Encoding {
     /// On the decoder error `trap` is called,
     /// which may return a replacement string to continue processing,
     /// or a failure to return the error.
-    fn decode(&'static self, input: &[u8], trap: DecoderTrap) -> Result<StrBuf,SendStr> {
+    fn decode(&'static self, input: &[u8], trap: DecoderTrap) -> Result<String,SendStr> {
         let mut decoder = self.decoder();
         let mut remaining = input;
         let mut unprocessed = Vec::new();
-        let mut ret = StrBuf::new();
+        let mut ret = String::new();
 
         loop {
             let (offset, err) = decoder.raw_feed(remaining, &mut ret);
@@ -341,11 +341,11 @@ pub trait Encoding {
 
 /// A type of the bare function in `EncoderTrap` values.
 pub type EncoderTrapFunc =
-    extern "Rust" fn(encoder: &Encoder, input: &str, output: &mut ByteWriter) -> bool;
+    extern "Rust" fn(encoder: &mut Encoder, input: &str, output: &mut ByteWriter) -> bool;
 
 /// A type of the bare function in `DecoderTrap` values.
 pub type DecoderTrapFunc =
-    extern "Rust" fn(decoder: &Decoder, input: &[u8], output: &mut StringWriter) -> bool;
+    extern "Rust" fn(decoder: &mut Decoder, input: &[u8], output: &mut StringWriter) -> bool;
 
 /// Trap, which handles decoder errors.
 pub enum DecoderTrap {
@@ -366,7 +366,7 @@ pub enum DecoderTrap {
 impl DecoderTrap {
     /// Handles a decoder error. May write to the output writer.
     /// Returns true only when it is fine to keep going.
-    fn trap(&self, decoder: &Decoder, input: &[u8], output: &mut StringWriter) -> bool {
+    fn trap(&self, decoder: &mut Decoder, input: &[u8], output: &mut StringWriter) -> bool {
         match *self {
             DecodeStrict => false,
             DecodeReplace => { output.write_char('\ufffd'); true },
@@ -399,15 +399,14 @@ pub enum EncoderTrap {
 impl EncoderTrap {
     /// Handles an encoder error. May write to the output writer.
     /// Returns true only when it is fine to keep going.
-    fn trap(&self, encoder: &Encoder, input: &str, output: &mut ByteWriter) -> bool {
-        fn reencode(encoder: &Encoder, input: &str, output: &mut ByteWriter,
+    fn trap(&self, encoder: &mut Encoder, input: &str, output: &mut ByteWriter) -> bool {
+        fn reencode(encoder: &mut Encoder, input: &str, output: &mut ByteWriter,
                     trapname: &str) -> bool {
             if encoder.is_ascii_compatible() { // optimization!
                 output.write_bytes(input.as_bytes());
             } else {
-                let mut e = encoder.from_self();
-                let (_, err) = e.raw_feed(input, output);
-                if err.is_some() || e.raw_finish(output).is_some() {
+                let (_, err) = encoder.raw_feed(input, output);
+                if err.is_some() {
                     fail!("{:s} cannot reencode a replacement string", trapname);
                 }
             }
@@ -419,8 +418,10 @@ impl EncoderTrap {
             EncodeReplace => reencode(encoder, "?", output, "Replace"),
             EncodeIgnore => true,
             EncodeNcrEscape => {
-                let mut escapes = StrBuf::new();
-                for ch in input.chars() { escapes.push_str(format!("&\\#{:d};", ch as int)); }
+                let mut escapes = String::new();
+                for ch in input.chars() {
+                    escapes.push_str(format!("&\\#{:d};", ch as int).as_slice());
+                }
                 reencode(encoder, escapes.as_slice(), output, "NcrEscape")
             },
             EncoderTrap(func) => func(encoder, input, output),
@@ -433,7 +434,7 @@ impl EncoderTrap {
 /// and decoded a single string in memory.
 /// Return the result and the used encoding.
 pub fn decode(input: &[u8], trap: DecoderTrap, fallback_encoding: EncodingRef)
-           -> (Result<StrBuf,SendStr>, EncodingRef) {
+           -> (Result<String,SendStr>, EncodingRef) {
     use all::{UTF_8, UTF_16LE, UTF_16BE};
     if input.starts_with([0xEF, 0xBB, 0xBF]) {
         (UTF_8.decode(input.slice_from(3), trap), UTF_8 as EncodingRef)
@@ -443,5 +444,91 @@ pub fn decode(input: &[u8], trap: DecoderTrap, fallback_encoding: EncodingRef)
         (UTF_16LE.decode(input.slice_from(2), trap), UTF_16LE as EncodingRef)
     } else {
         (fallback_encoding.decode(input, trap), fallback_encoding)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use util::StrCharIndex;
+
+    // a contrived encoding example: same as ASCII, but inserts `prepend` between each character
+    // within two "e"s (so that `widespread` becomes `wide*s*p*r*ead` and `eeeeasel` becomes
+    // `e*ee*ease*l` where `*` is substituted by `prepend`) and prohibits `prohibit` character.
+    struct MyEncoder { flag: bool, prohibit: char, prepend: &'static str, toggle: bool }
+    impl Encoder for MyEncoder {
+        fn from_self(&self) -> Box<Encoder> {
+            box MyEncoder { flag: self.flag,
+                            prohibit: self.prohibit,
+                            prepend: self.prepend,
+                            toggle: false } as Box<Encoder>
+        }
+        fn is_ascii_compatible(&self) -> bool { self.flag }
+        fn raw_feed(&mut self, input: &str,
+                    output: &mut ByteWriter) -> (uint, Option<CodecError>) {
+            for ((i,j), ch) in input.index_iter() {
+                if ch <= '\u007f' && ch != self.prohibit {
+                    if self.toggle && !self.prepend.is_empty() {
+                        output.write_bytes(self.prepend.as_bytes());
+                    }
+                    output.write_byte(ch as u8);
+                    if ch == 'e' {
+                        self.toggle = !self.toggle;
+                    }
+                } else {
+                    return (i, Some(CodecError { upto: j, cause: "!!!".into_maybe_owned() }));
+                }
+            }
+            (input.len(), None)
+        }
+        fn raw_finish(&mut self, _output: &mut ByteWriter) -> Option<CodecError> { None }
+    }
+
+    struct MyEncoding { flag: bool, prohibit: char, prepend: &'static str }
+    impl Encoding for MyEncoding {
+        fn name(&self) -> &'static str { "my encoding" }
+        fn encoder(&'static self) -> Box<Encoder> {
+            box MyEncoder { flag: self.flag,
+                            prohibit: self.prohibit,
+                            prepend: self.prepend,
+                            toggle: false } as Box<Encoder>
+        }
+        fn decoder(&'static self) -> Box<Decoder> { fail!("not supported") }
+    }
+
+    #[test]
+    fn test_reencoding_trap_with_ascii_compatible_encoding() {
+        static COMPAT: &'static MyEncoding =
+            &MyEncoding { flag: true, prohibit: '\u0080', prepend: "" };
+        static INCOMPAT: &'static MyEncoding =
+            &MyEncoding { flag: false, prohibit: '\u0080', prepend: "" };
+
+        assert_eq!(COMPAT.encode("Hello\u203d I'm fine.", EncodeNcrEscape),
+                   Ok(Vec::from_slice(bytes!("Hello&#8253; I'm fine."))));
+        assert_eq!(INCOMPAT.encode("Hello\u203d I'm fine.", EncodeNcrEscape),
+                   Ok(Vec::from_slice(bytes!("Hello&#8253; I'm fine."))));
+    }
+
+    #[test]
+    fn test_reencoding_trap_with_ascii_incompatible_encoding() {
+        static COMPAT: &'static MyEncoding =
+            &MyEncoding { flag: true, prohibit: '\u0080', prepend: "*" };
+        static INCOMPAT: &'static MyEncoding =
+            &MyEncoding { flag: false, prohibit: '\u0080', prepend: "*" };
+
+        // this should behave incorrectly as the encoding broke the assumption.
+        assert_eq!(COMPAT.encode("Hello\u203d I'm fine.", EncodeNcrEscape),
+                   Ok(Vec::from_slice(bytes!("He*l*l*o&#8253;* *I*'*m* *f*i*n*e."))));
+        assert_eq!(INCOMPAT.encode("Hello\u203d I'm fine.", EncodeNcrEscape),
+                   Ok(Vec::from_slice(bytes!("He*l*l*o*&*#*8*2*5*3*;* *I*'*m* *f*i*n*e."))));
+    }
+
+    #[test]
+    #[should_fail]
+    fn test_reencoding_trap_can_fail() {
+        static FAIL: &'static MyEncoding = &MyEncoding { flag: false, prohibit: '&', prepend: "" };
+
+        // this should fail as this contrived encoding does not support `&` at all
+        let _ = FAIL.encode("Hello\u203d I'm fine.", EncodeNcrEscape);
     }
 }
