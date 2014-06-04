@@ -16,7 +16,7 @@ RUST_SRC = $(shell find $(VPATH)/src/encoding/. -type f -name '*.rs')
 all:	libencoding.dummy
 
 libencoding.dummy: $(LIB_RS) $(RUST_SRC) $(EXT_DEPS)
-	$(RUSTC) $(RUSTFLAGS) $< --out-dir $(VPATH)
+	$(RUSTC) $(RUSTFLAGS) $< --out-dir .
 	touch $@
 
 rustencoding-test: $(LIB_RS) $(RUST_SRC)
@@ -24,7 +24,7 @@ rustencoding-test: $(LIB_RS) $(RUST_SRC)
 
 .PHONY: doctest
 doctest: $(LIB_RS) $(RUST_SRC) libencoding.dummy
-	$(RUSTDOC) $< -L $(VPATH) --test
+	$(RUSTDOC) $< -L . --test
 
 .PHONY: check
 check: doctest rustencoding-test
