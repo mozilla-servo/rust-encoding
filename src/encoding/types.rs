@@ -245,7 +245,7 @@ pub trait Decoder {
 /// A trait object using dynamic dispatch which is a sendable reference to the encoding,
 /// for code where the encoding is not known at compile-time.
 #[stable]
-pub type EncodingRef = &'static Encoding: Send;
+pub type EncodingRef = &'static Encoding+Send;
 
 /// Character encoding.
 #[stable]
@@ -437,7 +437,7 @@ impl EncoderTrap {
             EncodeNcrEscape => {
                 let mut escapes = String::new();
                 for ch in input.chars() {
-                    escapes.push_str(format!("&\\#{:d};", ch as int).as_slice());
+                    escapes.push_str(format!("&#{:d};", ch as int).as_slice());
                 }
                 reencode(encoder, escapes.as_slice(), output, "NcrEscape")
             },
