@@ -171,7 +171,7 @@ Whenever in doubt, look at the source code and specifications for detailed expla
 
 */
 
-#![crate_id = "encoding#0.1.0"]
+#![crate_name = "encoding"]
 #![crate_type = "lib"]
 #![crate_type = "dylib"]
 #![crate_type = "rlib"]
